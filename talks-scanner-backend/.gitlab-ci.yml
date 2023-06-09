@@ -1,0 +1,106 @@
+image: maven:3.8.3-openjdk-17
+
+variables:
+  MAVEN_OPTS: "-Dmaven.repo.local=./.m2/repository -Dorg.slf4j.simpleLogger.log.org.apache.maven.cli.transfer.Slf4jMavenTransferListener=WARN -Dorg.slf4j.simpleLogger.showDateTime=true -Djava.awt.headless=true"
+  MAVEN_CLI_OPTS: "--batch-mode --errors --fail-at-end --show-version -DinstallAtEnd=true "
+
+stages:
+  - build
+  - test
+  - package
+  - deploy
+  - check server is up
+
+build:
+  stage: build
+  script:
+    - 'mvn $MAVEN_CLI_OPTS clean compile'
+  cache:
+    paths:
+      - ./target
+      - ./.m2
+      - ./config
+  tags:
+      - jdk_17
+
+test:
+  stage: test
+  script:
+    - 'mvn $MAVEN_CLI_OPTS test'
+  cache:
+    paths:
+      - ./target
+      - ./.m2
+      - ./config
+  artifacts:
+    when: always
+    reports:
+      junit:
+        - target/surefire-reports/TEST-*.xml
+  tags:
+      - jdk_17
+
+package:
+  stage: package
+  only:
+    - main
+  except:
+    - tags
+  script:
+    - 'mvn $MAVEN_CLI_OPTS package -Dmaven.test.skip=true'
+  artifacts:
+    paths:
+      - target/*.jar
+  cache:
+    policy: pull
+    paths:
+      - ./target
+      - ./.m2
+      - ./config
+  tags:
+      - jdk_17
+
+deploy:
+  stage: deploy
+  only:
+    - main
+  except:
+    - tags
+  before_script:
+    - which ssh-agent || ( apt-get update -y && apt-get install openssh-client -y )
+    - eval $(ssh-agent -s)
+    - echo "$DEPLOYMENT_USER_SSH_KEY" | ssh-add -
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - ssh-keyscan $DEPLOYMENT_HOST > ~/.ssh/known_hosts
+    - chmod 644 ~/.ssh/known_hosts
+  script:
+    - ssh $DEPLOYMENT_USER@$DEPLOYMENT_HOST "rm -rf $APP_PATH/*.jar"
+    - scp ops-tools/$APP_NAME-svc.sh $DEPLOYMENT_USER@$DEPLOYMENT_HOST:$APP_PATH/
+    - scp ops-tools/$APP_NAME.service $DEPLOYMENT_USER@$DEPLOYMENT_HOST:$APP_PATH/
+    - scp -r config/ $DEPLOYMENT_USER@$DEPLOYMENT_HOST:$APP_PATH/
+    - scp target/$APP_NAME-0.0.1-SNAPSHOT.jar $DEPLOYMENT_USER@$DEPLOYMENT_HOST:$APP_PATH/$APP_NAME.jar
+    - ssh $DEPLOYMENT_USER@$DEPLOYMENT_HOST "chmod +x $APP_PATH/$APP_NAME-svc.sh"
+    - ssh $DEPLOYMENT_USER@$DEPLOYMENT_HOST "sudo rm -f $APP_PATH/var_file"
+    - ssh $DEPLOYMENT_USER@$DEPLOYMENT_HOST "sudo echo "DB_HOST=$DB_HOST" > $APP_PATH/var_file"
+    - ssh $DEPLOYMENT_USER@$DEPLOYMENT_HOST "sudo echo "DB_PORT=$DB_PORT" >> $APP_PATH/var_file"
+    - ssh $DEPLOYMENT_USER@$DEPLOYMENT_HOST "sudo echo "DB_USER=$DB_USER" >> $APP_PATH/var_file"
+    - ssh $DEPLOYMENT_USER@$DEPLOYMENT_HOST "sudo echo "DB_PASS=$DB_PASS" >> $APP_PATH/var_file"
+    - ssh $DEPLOYMENT_USER@$DEPLOYMENT_HOST "sudo ln -fs $APP_PATH/$APP_NAME.service /etc/systemd/system/$APP_NAME.service"
+    - ssh $DEPLOYMENT_USER@$DEPLOYMENT_HOST "sudo systemctl daemon-reload"
+    - ssh $DEPLOYMENT_USER@$DEPLOYMENT_HOST "sudo systemctl restart $APP_NAME"
+  tags:
+      - yandex_cloud
+
+wait_server_up:
+  timeout: 3 minutes
+  stage: check server is up
+  only:
+    - main
+  except:
+    - tags
+  script:
+    - chmod +x ./wait_resource.sh
+    - ./wait_resource.sh "http://practice-talks-scanner-backend.ru-central1.internal:8080/actuator/health"
+  tags:
+    - yandex_cloud

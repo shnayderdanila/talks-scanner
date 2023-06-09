@@ -1,0 +1,1 @@
+alter table "user" add column encoded_password VARCHAR(255) not null;

@@ -1,0 +1,1 @@
+INSERT INTO "user"(email, firstname, lastname, login, path_logo, sex) values('mail@ya.ru', 'firstname', 'lastname', 'login', '/logo.jpg', 'MALE');

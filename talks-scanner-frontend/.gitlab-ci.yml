@@ -1,0 +1,54 @@
+stages:
+  - build
+  - test
+  - deploy
+
+variables:
+  APP_NAME: talks-scanner-frontend
+  BUCKET_NAME: ${BUCKET_NAME}
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+
+build:
+  stage: build
+  image: node:14
+  script:
+    - npm install
+    - npm run build
+  artifacts:
+    paths:
+      - ./node_modules
+      - ./build
+  tags:
+      - jdk_11
+
+
+test:
+  stage: test
+  dependencies:
+    - build
+  image: node:14
+  cache:
+    policy: pull
+    paths:
+      - ./node_modules
+      - ./build
+  script:
+    - npm run test
+  tags:
+      - jdk_11
+
+deploy:
+  stage: deploy
+  dependencies:
+    - build
+    - test
+  before_script:
+    - /usr/local/bin/aws --profile test_deploy_front configure set aws_access_key_id $AWS_ACCESS_KEY_ID
+    - /usr/local/bin/aws --profile test_deploy_front configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY
+    - /usr/local/bin/aws --profile test_deploy_front configure set region ru-central1
+  script:
+    - /usr/local/bin/aws --profile test_deploy_front --endpoint-url=https://storage.yandexcloud.net s3 cp --recursive build/ s3://$BUCKET_NAME/
+  tags:
+      - yandex_cloud
+

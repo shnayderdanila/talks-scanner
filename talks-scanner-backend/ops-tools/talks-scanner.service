@@ -1,0 +1,12 @@
+[Unit]
+Description=Talks scanner backend
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/opt/talks-scanner/talks-scanner-svc.sh ${DB_HOST} ${DB_PORT} ${DB_USER} ${DB_PASS}
+EnvironmentFile=/opt/talks-scanner/var_file
+Restart=on-abort
+
+[Install]
+WantedBy=multi-user.target
